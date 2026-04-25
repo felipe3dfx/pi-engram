@@ -24,6 +24,11 @@ const TOOL_GUIDELINES = [
   "Use mem_save and mem_session_summary for durable continuity.",
 ]
 
+const ENGRAM_STATUS_ID = "engram"
+const ENGRAM_STATUS_RESET_MS = 2500
+
+let lastObservationAt: Date | null = null
+
 type EngramHTTPResult = {
   ok: boolean
   path: string
@@ -139,6 +144,47 @@ function redactValue(value: unknown): unknown {
 function projectFromDirectory(directory: string): string {
   const parts = directory.split(/[\\/]/).filter(Boolean)
   return parts.at(-1) ?? "unknown"
+}
+
+function formatRelativeAge(date: Date | null): string {
+  if (!date || Number.isNaN(date.getTime())) return ""
+
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000))
+  if (elapsedSeconds < 60) return "now"
+
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60)
+  if (elapsedMinutes < 60) return `${elapsedMinutes}m`
+
+  const elapsedHours = Math.floor(elapsedMinutes / 60)
+  if (elapsedHours < 24) return `${elapsedHours}h`
+
+  const elapsedDays = Math.floor(elapsedHours / 24)
+  return `${elapsedDays}d`
+}
+
+function statusMessage(ctx: any, message: string, tone: string = "dim"): string {
+  const text = `🧠 ${message}`
+  const fg = ctx?.ui?.theme?.fg
+  return typeof fg === "function" ? fg(tone, text) : text
+}
+
+function setEngramStatus(ctx: any, message: string, tone: string = "dim"): void {
+  if (!ctx?.hasUI || typeof ctx?.ui?.setStatus !== "function") return
+  ctx.ui.setStatus(ENGRAM_STATUS_ID, statusMessage(ctx, message, tone))
+}
+
+function readyStatusText(): string {
+  const age = formatRelativeAge(lastObservationAt)
+  return age ? `ready · last ${age}` : "ready"
+}
+
+function setEngramReadyStatus(ctx: any): void {
+  setEngramStatus(ctx, readyStatusText(), "dim")
+}
+
+function scheduleEngramReadyStatus(ctx: any): void {
+  const timer = setTimeout(() => setEngramReadyStatus(ctx), ENGRAM_STATUS_RESET_MS)
+  if (typeof timer.unref === "function") timer.unref()
 }
 
 function parseSessionID(sessionFile: string): string {
@@ -379,6 +425,35 @@ function humanToolName(toolName: string): string {
   return toolName.replace(/^mem_/, "")
 }
 
+function progressStatus(toolName: string): string {
+  if (toolName === "mem_search") return "searching…"
+  if (toolName === "mem_context") return "loading context…"
+  if (toolName === "mem_save") return "saving…"
+  if (toolName === "mem_get_observation") return "loading…"
+  if (toolName === "mem_save_prompt") return "archiving prompt…"
+  if (toolName === "mem_session_summary") return "saving summary…"
+  return `${humanToolName(toolName)}…`
+}
+
+function statusFromToolResult(toolName: string, result: any): { message: string; tone: string; reset: boolean } {
+  if (result?.isError) return { message: "offline", tone: "error", reset: false }
+
+  const status = compactResultStatus(toolName, result).replace(/^✓\s*/, "")
+  if (toolName === "mem_search") return { message: status, tone: "dim", reset: true }
+  if (toolName === "mem_context") return { message: "context loaded", tone: "dim", reset: true }
+  if (toolName === "mem_get_observation") return { message: status, tone: "dim", reset: true }
+  if (toolName === "mem_save") return { message: status, tone: "success", reset: true }
+  if (toolName === "mem_session_summary") return { message: "summary saved", tone: "success", reset: true }
+  if (toolName === "mem_save_prompt") return { message: "prompt archived", tone: "dim", reset: true }
+  return { message: "done", tone: "dim", reset: true }
+}
+
+function renderToolStatus(ctx: any, toolName: string, result: any): void {
+  const status = statusFromToolResult(toolName, result)
+  setEngramStatus(ctx, status.message, status.tone)
+  if (status.reset) scheduleEngramReadyStatus(ctx)
+}
+
 function compactToolArg(toolName: string, args: any): string {
   if (toolName === "mem_search" && args?.query) return quotePreview(args.query)
   if (toolName === "mem_context" && args?.project) return truncateText(String(args.project), 42)
@@ -478,6 +553,27 @@ function queryString(params: Record<string, unknown>): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object"
+}
+
+function observationCreatedAt(observation: unknown): Date | null {
+  if (!isRecord(observation)) return null
+  const candidates = [observation.created_at, observation.createdAt, observation.timestamp, observation.updated_at, observation.updatedAt]
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") continue
+    const parsed = new Date(candidate)
+    if (!Number.isNaN(parsed.getTime())) return parsed
+  }
+  return null
+}
+
+function rememberLatestObservation(observations: unknown[]): void {
+  for (const observation of observations) {
+    const createdAt = observationCreatedAt(observation)
+    if (!createdAt) continue
+    if (!lastObservationAt || createdAt.getTime() > lastObservationAt.getTime()) {
+      lastObservationAt = createdAt
+    }
+  }
 }
 
 function observationsFromRecentResult(result: unknown): unknown[] {
@@ -581,9 +677,12 @@ function registerMemoryTools(pi: any): void {
       void toolCallId
       void signal
       void onUpdate
+      setEngramStatus(ctx, progressStatus("mem_search"), "dim")
       const ready = await ensureBackend()
       if (!ready.ok) {
-        return backendFailureToolResult("mem_search", ready)
+        const result = backendFailureToolResult("mem_search", ready)
+        renderToolStatus(ctx, "mem_search", result)
+        return result
       }
       const runtime = deriveRuntime(ctx)
       const result = await engramFetch(
@@ -595,7 +694,9 @@ function registerMemoryTools(pi: any): void {
           limit: params.limit ?? 10,
         })}`,
       )
-      return summarizeToolResult("mem_search", result)
+      const summary = summarizeToolResult("mem_search", result)
+      renderToolStatus(ctx, "mem_search", summary)
+      return summary
     },
   })
 
@@ -614,9 +715,12 @@ function registerMemoryTools(pi: any): void {
       void toolCallId
       void signal
       void onUpdate
+      setEngramStatus(ctx, progressStatus("mem_context"), "dim")
       const ready = await ensureBackend()
       if (!ready.ok) {
-        return backendFailureToolResult("mem_context", ready)
+        const result = backendFailureToolResult("mem_context", ready)
+        renderToolStatus(ctx, "mem_context", result)
+        return result
       }
       const runtime = deriveRuntime(ctx)
       const result = await engramFetch(
@@ -625,7 +729,9 @@ function registerMemoryTools(pi: any): void {
           scope: params.scope,
         })}`,
       )
-      return summarizeToolResult("mem_context", result)
+      const summary = summarizeToolResult("mem_context", result)
+      renderToolStatus(ctx, "mem_context", summary)
+      return summary
     },
   })
 
@@ -649,9 +755,12 @@ function registerMemoryTools(pi: any): void {
       void toolCallId
       void signal
       void onUpdate
+      setEngramStatus(ctx, progressStatus("mem_save"), "dim")
       const ready = await ensureBackend()
       if (!ready.ok) {
-        return backendFailureToolResult("mem_save", ready)
+        const result = backendFailureToolResult("mem_save", ready)
+        renderToolStatus(ctx, "mem_save", result)
+        return result
       }
       const runtime = deriveRuntime(ctx)
       const result = await postJSON("/observations", {
@@ -663,7 +772,10 @@ function registerMemoryTools(pi: any): void {
         type: params.type ?? "manual",
         topic_key: params.topic_key,
       })
-      return summarizeToolResult("mem_save", result)
+      const summary = summarizeToolResult("mem_save", result)
+      if (result.ok) rememberLatestObservation([result.data])
+      renderToolStatus(ctx, "mem_save", summary)
+      return summary
     },
   })
 
@@ -682,23 +794,30 @@ function registerMemoryTools(pi: any): void {
       void toolCallId
       void signal
       void onUpdate
+      setEngramStatus(ctx, progressStatus("mem_session_summary"), "dim")
       const ready = await ensureBackend()
       if (!ready.ok) {
-        return backendFailureToolResult("mem_session_summary", ready)
+        const result = backendFailureToolResult("mem_session_summary", ready)
+        renderToolStatus(ctx, "mem_session_summary", result)
+        return result
       }
       const runtime = deriveRuntime(ctx)
       const sessionId = redactPrivateTags(String(params.session_id ?? runtime.sessionId))
       if (!sessionId) {
-        return failureToolResult("Engram request failed for mem_session_summary.", {
+        const result = failureToolResult("Engram request failed for mem_session_summary.", {
           path: "/sessions/{id}/end",
           error: "missing_session_id",
         })
+        renderToolStatus(ctx, "mem_session_summary", result)
+        return result
       }
 
       const result = await postJSON(`/sessions/${encodeURIComponent(sessionId)}/end`, {
         summary: params.content,
       })
-      return summarizeToolResult("mem_session_summary", result)
+      const summary = summarizeToolResult("mem_session_summary", result)
+      renderToolStatus(ctx, "mem_session_summary", summary)
+      return summary
     },
   })
 
@@ -716,13 +835,18 @@ function registerMemoryTools(pi: any): void {
       void toolCallId
       void signal
       void onUpdate
-      void ctx
+      setEngramStatus(ctx, progressStatus("mem_get_observation"), "dim")
       const ready = await ensureBackend()
       if (!ready.ok) {
-        return backendFailureToolResult("mem_get_observation", ready)
+        const result = backendFailureToolResult("mem_get_observation", ready)
+        renderToolStatus(ctx, "mem_get_observation", result)
+        return result
       }
       const result = await engramFetch(`/observations/${encodeURIComponent(String(params.id))}`)
-      return summarizeToolResult("mem_get_observation", result)
+      const summary = summarizeToolResult("mem_get_observation", result)
+      if (result.ok) rememberLatestObservation([result.data])
+      renderToolStatus(ctx, "mem_get_observation", summary)
+      return summary
     },
   })
 
@@ -742,9 +866,12 @@ function registerMemoryTools(pi: any): void {
       void toolCallId
       void signal
       void onUpdate
+      setEngramStatus(ctx, progressStatus("mem_save_prompt"), "dim")
       const ready = await ensureBackend()
       if (!ready.ok) {
-        return backendFailureToolResult("mem_save_prompt", ready)
+        const result = backendFailureToolResult("mem_save_prompt", ready)
+        renderToolStatus(ctx, "mem_save_prompt", result)
+        return result
       }
       const runtime = deriveRuntime(ctx)
       const result = await postJSON("/prompts", {
@@ -752,7 +879,9 @@ function registerMemoryTools(pi: any): void {
         project: params.project ?? runtime.project,
         content: params.content,
       })
-      return summarizeToolResult("mem_save_prompt", result)
+      const summary = summarizeToolResult("mem_save_prompt", result)
+      renderToolStatus(ctx, "mem_save_prompt", summary)
+      return summary
     },
   })
 }
@@ -929,8 +1058,12 @@ export default function (pi: ExtensionAPI): void {
   registerRecoveryCommand(pi)
 
   pi.on("session_start", async (event, ctx) => {
+    setEngramStatus(ctx, "starting…", "dim")
     const ready = await ensureBackend()
-    if (!ready.ok) return
+    if (!ready.ok) {
+      setEngramStatus(ctx, "offline", "error")
+      return
+    }
     const runtime = deriveRuntime(ctx)
     const reason = redactPrivateTags(String(event.reason ?? ""))
 
@@ -943,11 +1076,16 @@ export default function (pi: ExtensionAPI): void {
       })
     }
 
-    if (!runtime.project) return
+    if (!runtime.project) {
+      setEngramReadyStatus(ctx)
+      return
+    }
     const result = await engramFetch(
       `/observations/recent${queryString({ project: runtime.project, scope: "project", limit: 1 })}`,
     )
     const observations = observationsFromRecentResult(result)
+    rememberLatestObservation(observations)
+    setEngramReadyStatus(ctx)
 
     if (observations.length > 0 && ctx.hasUI && ctx.ui?.notify) {
       ctx.ui.notify(STARTUP_NOTICE, "info")
@@ -987,8 +1125,10 @@ export default function (pi: ExtensionAPI): void {
   })
 
   pi.on("session_before_compact", async (event, ctx) => {
+    setEngramStatus(ctx, "preparing compact…", "dim")
     const ready = await ensureBackend()
     if (!ready.ok) {
+      setEngramStatus(ctx, "offline", "error")
       notifyCompactionRecovery(ctx)
       return
     }
@@ -998,13 +1138,17 @@ export default function (pi: ExtensionAPI): void {
   })
 
   pi.on("session_compact", async (event, ctx) => {
+    setEngramStatus(ctx, "saving compact…", "dim")
     const ready = await ensureBackend()
     if (!ready.ok) {
+      setEngramStatus(ctx, "offline", "error")
       notifyCompactionRecovery(ctx)
       return
     }
 
     const saved = await persistCompactionSummary(event, ctx)
+    setEngramStatus(ctx, saved ? "compact saved" : "recovery needed", saved ? "success" : "error")
+    if (saved) scheduleEngramReadyStatus(ctx)
     notifyCompactionResult(saved, ctx)
     if (!saved) {
       notifyCompactionRecovery(ctx)
