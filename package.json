@@ -26,6 +26,7 @@
   "files": [
     "extensions/",
     "skills/",
+    "docs/",
     "test/",
     "tests/",
     "tsconfig.json",
@@ -51,7 +52,8 @@
     ],
     "skills": [
       "./skills"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/felipe3dfx/pi-engram/main/docs/pi-engram-logo.jpg"
   },
   "peerDependencies": {
     "@mariozechner/pi-coding-agent": "*",

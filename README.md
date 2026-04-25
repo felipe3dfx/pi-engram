@@ -2,6 +2,8 @@
 
 Standalone shareable [Pi](https://github.com/badlogic/pi-mono) package for Engram persistent memory integration.
 
+![pi-engram logo](docs/pi-engram-logo.jpg)
+
 It ships a native Pi extension plus a small Engram memory-protocol skill. The recommended install path is npm, with GitHub installs available for pinned or unreleased versions.
 
 > Security note: Pi extensions run with your full system permissions. Review extension source before installing packages from any repository.
