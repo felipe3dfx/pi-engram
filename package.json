@@ -1,9 +1,9 @@
 {
   "name": "pi-engram",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Standalone shareable Engram extension package for pi-coding-agent",
   "license": "MIT",
-  "author": "Felipe 3DFX",
+  "author": "felipe.3dfx",
   "type": "module",
   "repository": {
     "type": "git",

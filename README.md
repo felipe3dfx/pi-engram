@@ -2,7 +2,7 @@
 
 Standalone shareable [Pi](https://github.com/badlogic/pi-mono) package for Engram persistent memory integration.
 
-It ships a native Pi extension plus a small Engram memory-protocol skill. The package is Git-first for now and npm-ready for later publication.
+It ships a native Pi extension plus a small Engram memory-protocol skill. The recommended install path is npm, with GitHub installs available for pinned or unreleased versions.
 
 > Security note: Pi extensions run with your full system permissions. Review extension source before installing packages from any repository.
 
@@ -19,10 +19,10 @@ It ships a native Pi extension plus a small Engram memory-protocol skill. The pa
 
 ## Install
 
-### From git
+### From npm
 
 ```bash
-pi install git:github.com/felipe3dfx/pi-engram
+pi install npm:pi-engram
 ```
 
 Then reload Pi:
@@ -31,20 +31,18 @@ Then reload Pi:
 /reload
 ```
 
-Once release tags exist, prefer pinning installs:
+### From git
+
+Install the latest `main` from GitHub:
+
+```bash
+pi install git:github.com/felipe3dfx/pi-engram
+```
+
+Install a pinned release tag:
 
 ```bash
 pi install git:github.com/felipe3dfx/pi-engram@v0.2.0
-```
-
-### From npm later
-
-This package is npm-ready, but GitHub install is the first supported distribution path.
-
-After npm publication, the install command will be:
-
-```bash
-pi install npm:pi-engram
 ```
 
 ### From a local checkout
@@ -74,6 +72,12 @@ pi list
 ```
 
 Remove the package using the same source shown by `pi list`, for example:
+
+```bash
+pi remove npm:pi-engram
+```
+
+or for a GitHub install:
 
 ```bash
 pi remove git:github.com/felipe3dfx/pi-engram
@@ -243,7 +247,7 @@ pi install ./
 
 ## Relationship to `engram setup pi`
 
-This repository is the standalone, Git-first package for sharing, inspecting, and contributing to the Pi integration.
+This repository is the standalone npm/GitHub package for sharing, inspecting, and contributing to the Pi integration.
 
 The Engram monorepo may also provide an embedded/offline first-party setup flow via:
 
