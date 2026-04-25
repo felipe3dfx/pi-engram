@@ -38,6 +38,80 @@ type BackendReadiness = {
   startupError?: string
 }
 
+type TuiComponent = {
+  render(width: number): string[]
+  invalidate(): void
+}
+
+function parseSgrCode(line: string, index: number): { sequence: string; end: number } | null {
+  if (line[index] !== "\x1b" || line[index + 1] !== "[") return null
+  const end = line.indexOf("m", index + 2)
+  if (end === -1) return null
+  return { sequence: line.slice(index, end + 1), end }
+}
+
+function resetsAnsiStyle(sequence: string): boolean {
+  return /\x1b\[(?:0|39)(?:;\d+)*m/.test(sequence)
+}
+
+function wrapAnsiLine(line: string, width: number): string[] {
+  if (width <= 0) return [""]
+
+  const lines: string[] = []
+  const continuationIndent = width > 8 ? "    " : ""
+  const continuationWidth = Math.max(1, width - continuationIndent.length)
+  let activeStyle = ""
+  let current = ""
+  let visible = 0
+  let currentWidth = width
+
+  const pushCurrent = () => {
+    lines.push(current)
+    current = activeStyle + continuationIndent
+    visible = continuationIndent.length
+    currentWidth = continuationWidth
+  }
+
+  for (let i = 0; i < line.length; i++) {
+    const sgr = parseSgrCode(line, i)
+    if (sgr) {
+      current += sgr.sequence
+      activeStyle = resetsAnsiStyle(sgr.sequence) ? "" : `${activeStyle}${sgr.sequence}`
+      i = sgr.end
+      continue
+    }
+
+    if (visible >= currentWidth) {
+      pushCurrent()
+    }
+
+    current += line[i]
+    visible++
+  }
+
+  lines.push(current)
+  return lines
+}
+
+class InlineText implements TuiComponent {
+  private text: string
+
+  constructor(text: string) {
+    this.text = text
+  }
+
+  setText(text: string): void {
+    this.text = text
+  }
+
+  render(width: number): string[] {
+    const limit = Math.max(0, width)
+    return this.text.split("\n").flatMap((line) => wrapAnsiLine(line, limit))
+  }
+
+  invalidate(): void {}
+}
+
 const BACKEND_STARTUP_POLL_MS = [120, 240, 360, 600, 900]
 
 function redactPrivateTags(input: string): string {
@@ -276,6 +350,122 @@ function summarizeToolResult(toolName: string, result: EngramHTTPResult) {
   return successToolResult("Engram request completed.", result)
 }
 
+function firstTextContent(result: any): string {
+  const content = Array.isArray(result?.content) ? result.content : []
+  for (const item of content) {
+    if (item && item.type === "text" && typeof item.text === "string") {
+      return item.text.trim()
+    }
+  }
+  return ""
+}
+
+function truncateText(value: string, maxLength = 42): string {
+  if (value.length <= maxLength) return value
+  return `${value.slice(0, Math.max(0, maxLength - 1))}…`
+}
+
+function quotePreview(value: unknown, maxLength = 42): string {
+  return `“${truncateText(String(value), maxLength)}”`
+}
+
+function humanToolName(toolName: string): string {
+  if (toolName === "mem_search") return "search"
+  if (toolName === "mem_context") return "context"
+  if (toolName === "mem_save") return "save"
+  if (toolName === "mem_get_observation") return "load"
+  if (toolName === "mem_save_prompt") return "archive prompt"
+  if (toolName === "mem_session_summary") return "summary"
+  return toolName.replace(/^mem_/, "")
+}
+
+function compactToolArg(toolName: string, args: any): string {
+  if (toolName === "mem_search" && args?.query) return quotePreview(args.query)
+  if (toolName === "mem_context" && args?.project) return truncateText(String(args.project), 42)
+  if (toolName === "mem_save" && args?.title) return quotePreview(args.title)
+  if (toolName === "mem_get_observation" && args?.id) return `#${String(args.id)}`
+  return ""
+}
+
+function countSearchResults(data: unknown): number {
+  if (Array.isArray(data)) return data.length
+  if (isRecord(data) && Array.isArray(data.data)) return data.data.length
+  if (isRecord(data) && Array.isArray(data.observations)) return data.observations.length
+  return 0
+}
+
+function compactResultStatus(toolName: string, result: any): string {
+  if (result?.isError) return "✗ failed"
+
+  const details = result?.details as EngramHTTPResult | undefined
+  const data = details?.data
+
+  if (toolName === "mem_save") {
+    const record = isRecord(data) ? data : {}
+    const id = record.id ? ` #${String(record.id)}` : ""
+    return `✓ saved${id}`
+  }
+
+  if (toolName === "mem_search") {
+    const count = countSearchResults(data)
+    return count === 1 ? "✓ 1 result" : `✓ ${count} results`
+  }
+
+  if (toolName === "mem_context") return "✓ loaded"
+
+  if (toolName === "mem_get_observation") {
+    const summary = extractObservationSummaryFields(data)
+    return summary.id ? `✓ loaded #${summary.id}` : "✓ loaded"
+  }
+
+  if (toolName === "mem_session_summary") return "✓ saved"
+  if (toolName === "mem_save_prompt") return "✓ archived"
+
+  return "✓ done"
+}
+
+function detailsPreview(details: unknown): string {
+  if (!details) return ""
+  try {
+    return JSON.stringify(redactValue(details), null, 2).slice(0, 1200)
+  } catch {
+    return String(details).slice(0, 1200)
+  }
+}
+
+function engramToolChrome(toolName: string) {
+  return {
+    renderShell: "self" as const,
+    renderCall(args: any, theme: any) {
+      const arg = compactToolArg(toolName, args)
+      const suffix = arg ? ` ${arg}` : ""
+      return new InlineText(theme.fg("dim", `🧠 ${humanToolName(toolName)}${suffix} …`))
+    },
+    renderResult(result: any, { expanded, isPartial }: any, theme: any) {
+      if (isPartial) {
+        return new InlineText(theme.fg("dim", "  ↳ …"))
+      }
+
+      const status = compactResultStatus(toolName, result)
+      const color = result?.isError ? "error" : "dim"
+      let text = theme.fg(color, `  ↳ ${status}`)
+
+      if (expanded) {
+        const summary = firstTextContent(result)
+        if (summary) {
+          text += `\n${theme.fg("dim", summary)}`
+        }
+        const preview = detailsPreview(result?.details)
+        if (preview) {
+          text += `\n${theme.fg("dim", preview)}`
+        }
+      }
+
+      return new InlineText(text)
+    },
+  }
+}
+
 function queryString(params: Record<string, unknown>): string {
   const query = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
@@ -386,6 +576,7 @@ function registerMemoryTools(pi: any): void {
     }),
     promptSnippet: "Call mem_search for recall and continuity lookups.",
     promptGuidelines: ["Use mem_search by name when querying historical observations.", ...TOOL_GUIDELINES],
+    ...engramToolChrome("mem_search"),
     async execute(toolCallId: unknown, params: any, signal: unknown, onUpdate: unknown, ctx: any) {
       void toolCallId
       void signal
@@ -418,6 +609,7 @@ function registerMemoryTools(pi: any): void {
     }),
     promptSnippet: "Call mem_context for compact session continuity.",
     promptGuidelines: ["Use mem_context by name at startup or after compaction.", ...TOOL_GUIDELINES],
+    ...engramToolChrome("mem_context"),
     async execute(toolCallId: unknown, params: any, signal: unknown, onUpdate: unknown, ctx: any) {
       void toolCallId
       void signal
@@ -452,6 +644,7 @@ function registerMemoryTools(pi: any): void {
     }),
     promptSnippet: "Call mem_save immediately after decisions, bugfixes, and discoveries.",
     promptGuidelines: ["Use mem_save by name with structured What/Why/Where/Learned content.", ...TOOL_GUIDELINES],
+    ...engramToolChrome("mem_save"),
     async execute(toolCallId: unknown, params: any, signal: unknown, onUpdate: unknown, ctx: any) {
       void toolCallId
       void signal
@@ -484,6 +677,7 @@ function registerMemoryTools(pi: any): void {
     }),
     promptSnippet: "Call mem_session_summary before ending work or after compaction.",
     promptGuidelines: ["Use mem_session_summary by name before saying done.", ...TOOL_GUIDELINES],
+    ...engramToolChrome("mem_session_summary"),
     async execute(toolCallId: unknown, params: any, signal: unknown, onUpdate: unknown, ctx: any) {
       void toolCallId
       void signal
@@ -517,6 +711,7 @@ function registerMemoryTools(pi: any): void {
     }),
     promptSnippet: "Call mem_get_observation for full untruncated memory content.",
     promptGuidelines: ["Use mem_get_observation by name after mem_search for full details.", ...TOOL_GUIDELINES],
+    ...engramToolChrome("mem_get_observation"),
     async execute(toolCallId: unknown, params: any, signal: unknown, onUpdate: unknown, ctx: any) {
       void toolCallId
       void signal
@@ -542,6 +737,7 @@ function registerMemoryTools(pi: any): void {
     }),
     promptSnippet: "Call mem_save_prompt when explicit prompt archival is needed.",
     promptGuidelines: ["Use mem_save_prompt by name only for prompt capture use-cases.", ...TOOL_GUIDELINES],
+    ...engramToolChrome("mem_save_prompt"),
     async execute(toolCallId: unknown, params: any, signal: unknown, onUpdate: unknown, ctx: any) {
       void toolCallId
       void signal
