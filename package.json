@@ -1,0 +1,61 @@
+{
+  "name": "pi-engram",
+  "version": "0.2.0",
+  "description": "Standalone shareable Engram extension package for pi-coding-agent",
+  "license": "MIT",
+  "author": "Felipe 3DFX",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/felipe3dfx/pi-engram.git"
+  },
+  "homepage": "https://github.com/felipe3dfx/pi-engram#readme",
+  "bugs": {
+    "url": "https://github.com/felipe3dfx/pi-engram/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi",
+    "pi-coding-agent",
+    "engram",
+    "memory",
+    "persistent-memory",
+    "ai-agents"
+  ],
+  "files": [
+    "extensions/",
+    "skills/",
+    "test/",
+    "tests/",
+    "tsconfig.json",
+    "vitest.config.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "vitest --run",
+    "test:harness": "node test/runtime-harness.mjs extensions/engram.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/engram.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.0"
+  }
+}
