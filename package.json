@@ -1,6 +1,6 @@
 {
   "name": "pi-engram",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Standalone shareable Engram extension package for pi-coding-agent",
   "license": "MIT",
   "author": "felipe.3dfx",
@@ -39,7 +39,11 @@
   "scripts": {
     "test": "vitest --run",
     "test:harness": "node test/runtime-harness.mjs extensions/engram.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "pack:dry-run": "npm pack --dry-run",
+    "check:publish": "npm run typecheck && npm test && npm run test:harness",
+    "check": "npm run check:publish && npm run pack:dry-run",
+    "prepublishOnly": "npm run check:publish"
   },
   "pi": {
     "extensions": [

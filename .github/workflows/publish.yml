@@ -19,7 +19,6 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
       - run: npm --version
-      - run: npm install
-      - run: npm run typecheck
-      - run: npm test
+      - run: npm ci
+      - run: npm run check
       - run: npm publish --provenance --access public

@@ -209,35 +209,30 @@ The included skill is:
 skills/engram/SKILL.md
 ```
 
-Run the Vitest suite:
+Run the full release guard locally:
 
 ```bash
-npm test
+npm run check
 ```
 
-Run TypeScript checks:
+This runs TypeScript checks, the Vitest suite, the deterministic runtime harness, and an npm pack dry-run.
+
+Run individual checks when iterating:
 
 ```bash
 npm run typecheck
-```
-
-Run the deterministic runtime harness directly:
-
-```bash
+npm test
 npm run test:harness
+npm run pack:dry-run
 ```
 
-Equivalent direct command:
+Equivalent direct harness command:
 
 ```bash
 node test/runtime-harness.mjs extensions/engram.ts
 ```
 
-Check package contents before publishing:
-
-```bash
-npm pack --dry-run
-```
+The package also has a `prepublishOnly` guard, so manual `npm publish` runs the publish checks before uploading.
 
 Install this checkout locally for manual Pi testing:
 
