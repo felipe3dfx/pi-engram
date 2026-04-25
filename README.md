@@ -47,23 +47,11 @@ Install a pinned release tag:
 pi install git:github.com/felipe3dfx/pi-engram@v0.2.0
 ```
 
-### From a local checkout
+### From Engram TUI/setup flow
 
-```bash
-pi install /absolute/path/to/pi-engram
-```
+Engram's main repository has an active PR for installing the Pi integration through the Engram setup/TUI flow. If you are testing that PR or using an Engram build that includes it, prefer the Engram-managed setup path for the bundled/offline installation experience.
 
-From this repository root, you can also run:
-
-```bash
-pi install ./
-```
-
-To test without installing permanently:
-
-```bash
-pi -e ./
-```
+This repository remains the standalone npm/GitHub package for users who want to install the Pi package directly.
 
 ## Uninstall
 
@@ -83,12 +71,6 @@ or for a GitHub install:
 
 ```bash
 pi remove git:github.com/felipe3dfx/pi-engram
-```
-
-or for a local checkout install:
-
-```bash
-pi remove /absolute/path/to/pi-engram
 ```
 
 Then reload or restart Pi.
@@ -236,23 +218,17 @@ node test/runtime-harness.mjs extensions/engram.ts
 
 The package also has a `prepublishOnly` guard, so manual `npm publish` runs the publish checks before uploading.
 
-Install this checkout locally for manual Pi testing:
-
-```bash
-pi install ./
-```
-
 ## Relationship to `engram setup pi`
 
 This repository is the standalone npm/GitHub package for sharing, inspecting, and contributing to the Pi integration.
 
-The Engram monorepo may also provide an embedded/offline first-party setup flow via:
+The Engram monorepo has an active PR for a first-party Pi setup flow via Engram's setup/TUI experience, including the equivalent of:
 
 ```bash
 engram setup pi
 ```
 
-That flow materializes and installs a local package from the Engram binary. This repository does not include that installer wiring; it contains only the Pi package assets.
+That flow materializes and installs a local package from the Engram binary for an embedded/offline experience. This repository does not include that installer wiring; it contains only the standalone Pi package assets used for npm/GitHub distribution.
 
 ## Troubleshooting
 

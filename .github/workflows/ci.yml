@@ -15,4 +15,7 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
-      - run: npm run check
+      - name: Run release guard
+        run: npm run check
+      - name: Run test suite explicitly
+        run: npm test
