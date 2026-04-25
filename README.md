@@ -92,7 +92,13 @@ The extension also records lifecycle and prompt metadata automatically where sup
 
 ## Commands and tools
 
-### Slash command
+### Slash commands
+
+```text
+/engram-status
+```
+
+Shows Engram backend, project, session, binary, auto-start, and last-memory diagnostics. The Engram status line also includes the detected project name, for example `🧠 pi-engram · ready`.
 
 ```text
 /engram-recovery

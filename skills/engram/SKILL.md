@@ -26,6 +26,11 @@ Before ending a session, call `mem_session_summary` with goal, discoveries, acco
 ### After compaction
 If a compacted summary is present, first call `mem_session_summary` with that content, then call `mem_context`.
 
+### Commands and UI
+- `/engram-status`: inspect backend health, detected project, session ID, binary, auto-start, and last-memory status.
+- Engram status line includes the detected project name when available.
+- `/engram-recovery`: show manual recovery instructions for compaction edge cases.
+
 ### Compaction hook behavior
 - `session_before_compact`: extension injects `FIRST ACTION REQUIRED` into compaction instructions when supported by event shape.
 - `session_compact`: extension attempts to persist the compacted summary through Engram session summary endpoint and notifies whether persistence succeeded.

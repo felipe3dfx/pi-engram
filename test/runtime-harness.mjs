@@ -208,9 +208,13 @@ for (const name of expectedToolNames) {
   assert.equal(typeof tool.execute, "function")
 }
 
-assert.equal(commands.length, 1, "must register one command")
-assert.equal(commands[0].name, "engram-recovery", "command must use string-first registration")
-assert.equal(typeof commands[0].definition.handler, "function")
+assert.equal(commands.length, 2, "must register Engram commands")
+const recoveryCommand = commands.find((item) => item.name === "engram-recovery")
+const statusCommand = commands.find((item) => item.name === "engram-status")
+assert.ok(recoveryCommand, "must register engram-recovery command")
+assert.ok(statusCommand, "must register engram-status command")
+assert.equal(typeof recoveryCommand.definition.handler, "function")
+assert.equal(typeof statusCommand.definition.handler, "function")
 
 const memSearch = tools.find((item) => item.name === "mem_search")
 const runtimeContext = {
@@ -235,6 +239,43 @@ assert.equal(spawnCalls[0].unrefCalled, true)
 
 const sessionStart = hooks.get("session_start")
 assert.equal(typeof sessionStart, "function", "session_start hook must be registered")
+
+const statusCalls = []
+const themedStatusContext = {
+  ...runtimeContext,
+  hasUI: true,
+  ui: {
+    theme: {
+      fg(color, text) {
+        assert.equal(this, themedStatusContext.ui.theme, "status rendering must preserve theme.fg receiver")
+        return `[${color}]${text}`
+      },
+    },
+    setStatus(id, message) {
+      statusCalls.push({ id, message })
+    },
+    notify() {},
+  },
+}
+await sessionStart({ reason: "startup" }, themedStatusContext)
+assert.ok(statusCalls.length > 0, "session_start should publish UI status when setStatus is available")
+assert.ok(statusCalls[0].message.includes("🧠 engram · starting"), "status message should include project and Engram status text")
+
+const commandNotifications = []
+const statusReport = await statusCommand.definition.handler("", {
+  ...runtimeContext,
+  hasUI: true,
+  ui: {
+    notify(message, level) {
+      commandNotifications.push({ message, level })
+    },
+    setStatus() {},
+  },
+})
+assert.ok(String(statusReport).includes("🧠 Engram status"), "engram-status should return a status report")
+assert.ok(String(statusReport).includes("Project: engram"), "engram-status should report detected project")
+assert.ok(String(statusReport).includes("Backend: online"), "engram-status should report backend health")
+assert.ok(commandNotifications.length > 0, "engram-status should notify the status report in UI")
 
 const startupCases = [
   { payload: [], expectNotify: false },

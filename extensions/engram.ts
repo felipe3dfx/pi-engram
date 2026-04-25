@@ -28,6 +28,7 @@ const ENGRAM_STATUS_ID = "engram"
 const ENGRAM_STATUS_RESET_MS = 2500
 
 let lastObservationAt: Date | null = null
+let lastProject = ""
 
 type EngramHTTPResult = {
   ok: boolean
@@ -146,6 +147,21 @@ function projectFromDirectory(directory: string): string {
   return parts.at(-1) ?? "unknown"
 }
 
+function rememberProject(project: string): void {
+  const clean = redactPrivateTags(project).trim()
+  if (clean && clean !== "unknown") {
+    lastProject = clean
+  }
+}
+
+function projectForStatus(ctx: any): string {
+  const directory = typeof ctx?.cwd === "string" ? ctx.cwd : ""
+  const project = directory ? projectFromDirectory(directory) : lastProject
+  const clean = redactPrivateTags(project).trim()
+  if (clean && clean !== "unknown") return clean
+  return lastProject
+}
+
 function formatRelativeAge(date: Date | null): string {
   if (!date || Number.isNaN(date.getTime())) return ""
 
@@ -163,9 +179,10 @@ function formatRelativeAge(date: Date | null): string {
 }
 
 function statusMessage(ctx: any, message: string, tone: string = "dim"): string {
-  const text = `🧠 ${message}`
-  const fg = ctx?.ui?.theme?.fg
-  return typeof fg === "function" ? fg(tone, text) : text
+  const project = projectForStatus(ctx)
+  const text = project ? `🧠 ${project} · ${message}` : `🧠 ${message}`
+  const theme = ctx?.ui?.theme
+  return typeof theme?.fg === "function" ? theme.fg(tone, text) : text
 }
 
 function setEngramStatus(ctx: any, message: string, tone: string = "dim"): void {
@@ -207,6 +224,7 @@ function deriveSessionId(ctx: any): string {
 function deriveRuntime(ctx: any): { sessionId: string; project: string; directory: string } {
   const directory = redactPrivateTags(String(ctx.cwd ?? ""))
   const project = redactPrivateTags(projectFromDirectory(directory))
+  rememberProject(project)
   const sessionId = deriveSessionId(ctx)
   return { sessionId, project, directory }
 }
@@ -886,7 +904,30 @@ function registerMemoryTools(pi: any): void {
   })
 }
 
-function registerRecoveryCommand(pi: any): void {
+function formatStatusReport(ctx: any, readiness: BackendReadiness): string {
+  const runtime = deriveRuntime(ctx)
+  const lastMemory = formatRelativeAge(lastObservationAt) || "none this session"
+  const backend = readiness.ok ? "online" : "offline"
+  const startup = readiness.startupAttempted ? "yes" : "no"
+  const lines = [
+    "🧠 Engram status",
+    `Backend: ${backend} (${ENGRAM_URL})`,
+    `Project: ${runtime.project || "unknown"}`,
+    `Directory: ${runtime.directory || "unknown"}`,
+    `Session: ${runtime.sessionId || "unknown"}`,
+    `Binary: ${ENGRAM_BIN}`,
+    `Auto-start attempted: ${startup}`,
+    `Last memory: ${lastMemory}`,
+  ]
+
+  if (readiness.startupError) {
+    lines.push(`Startup error: ${readiness.startupError}`)
+  }
+
+  return lines.join("\n")
+}
+
+function registerEngramCommands(pi: any): void {
   if (typeof pi.registerCommand !== "function") {
     return
   }
@@ -898,6 +939,22 @@ function registerRecoveryCommand(pi: any): void {
         ctx.ui.notify(COMPACTION_RECOVERY_NOTICE, "info")
       }
       return COMPACTION_RECOVERY_NOTICE
+    },
+  })
+
+  pi.registerCommand("engram-status", {
+    description: "Shows Engram backend, project, and session diagnostics.",
+    handler: async (_args: unknown, ctx: any) => {
+      setEngramStatus(ctx, "checking…", "dim")
+      const readiness = await ensureBackend()
+      setEngramStatus(ctx, readiness.ok ? "online" : "offline", readiness.ok ? "success" : "error")
+      if (readiness.ok) scheduleEngramReadyStatus(ctx)
+
+      const report = formatStatusReport(ctx, readiness)
+      if (ctx?.hasUI && ctx?.ui?.notify) {
+        ctx.ui.notify(report, readiness.ok ? "info" : "error")
+      }
+      return report
     },
   })
 }
@@ -1055,7 +1112,7 @@ function notifyCompactionResult(saved: boolean, ctx: any): void {
 
 export default function (pi: ExtensionAPI): void {
   registerMemoryTools(pi)
-  registerRecoveryCommand(pi)
+  registerEngramCommands(pi)
 
   pi.on("session_start", async (event, ctx) => {
     setEngramStatus(ctx, "starting…", "dim")
