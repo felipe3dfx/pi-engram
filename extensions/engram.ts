@@ -379,28 +379,20 @@ function summarizeToolResult(toolName: string, result: EngramHTTPResult) {
   if (toolName === "mem_search") {
     const count = Array.isArray(result.data) ? result.data.length : 0
     if (count > 0) {
-      return successToolResult(`Found ${count} memory result(s).`, result)
+      return successToolResult(`Found ${count} memory result(s).\n\n${JSON.stringify(result.data, null, 2)}`, result)
     }
     const preview = compactPreview(result.data)
-    return successToolResult(preview ? `Search complete. ${preview}` : "Search complete.", result)
+    return successToolResult(preview ? `Search complete.\n\n${JSON.stringify(result.data, null, 2)}` : "Search complete.", result)
   }
 
   if (toolName === "mem_context") {
-    const preview = compactPreview(result.data)
-    return successToolResult(preview ? `Memory context loaded. ${preview}` : "Memory context loaded.", result)
+    return successToolResult(`Memory context loaded.\n\n${JSON.stringify(result.data, null, 2)}`, result)
   }
 
   if (toolName === "mem_get_observation") {
     const summary = extractObservationSummaryFields(result.data)
     const id = summary.id
-    const preview = observationSummaryPreview(result.data)
-    if (id) {
-      if (preview) {
-        return successToolResult(`Loaded observation #${id}. ${preview}`, result)
-      }
-      return successToolResult(`Loaded observation #${id}.`, result)
-    }
-    return successToolResult(preview ? `Observation loaded. ${preview}` : "Observation loaded.", result)
+    return successToolResult(`Loaded observation #${id}.\n\n${JSON.stringify(result.data, null, 2)}`, result)
   }
 
   if (toolName === "mem_session_summary") {
